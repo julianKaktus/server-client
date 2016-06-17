@@ -18,6 +18,7 @@ int main (int argc, char *argv[])
 	listen(serverSocket, 5);
 	int cliLen = sizeof(cli_addr);
 	
+	// ToDo: Add Threads!
 	while(1)
 	{
 		printf("Waiting for connections...\n");
