@@ -2,6 +2,7 @@
 #include <stdlib.h>
 
 #include <netdb.h>
+#include <pthread.h>
 
 #include <string.h>
 
@@ -20,12 +21,7 @@ int main (int argc, char *argv[])
 	while(1)
 	{
 		printf("Waiting for connections...\n");
-		if (getchar() == 'q')
-		{
-			close(serverSocket);
-			printf("Server socket closed.\n");
-			break;
-		}
+
 		// Accept actual connection from the client
 		int clientSocket = accept(serverSocket, (struct sockaddr *) &cli_addr, &cliLen);
 		if (clientSocket < 0)
