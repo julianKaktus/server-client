@@ -9,6 +9,8 @@
 #define COMMAND_LENGTH 255
 #define SERVER_PORT 1417
 
+void *handleRequest(void *);
+
 int main (int argc, char *argv[])
 {
 	int serverSocket = initServer();
@@ -18,6 +20,8 @@ int main (int argc, char *argv[])
 	listen(serverSocket, 5);
 	int cliLen = sizeof(cli_addr);
 	
+	pthread_t threads[10];
+
 	// ToDo: Add Threads!
 	while(1)
 	{
@@ -31,7 +35,10 @@ int main (int argc, char *argv[])
 			exit(1);
 		}
 		printf("Client connected: %d \n", cli_addr.sin_addr.s_addr);
-		// Start communicating
+		printf("%d", clientSocket);
+		pthread_create(&threads[clientSocket], NULL, handleRequest, (void*)&clientSocket);
+		
+		/** Start communicating
 		char command[COMMAND_LENGTH];
 		int n = read(clientSocket, command, sizeof(command));
 
@@ -46,6 +53,7 @@ int main (int argc, char *argv[])
 		shutdown(clientSocket, SHUT_RDWR);
 		close(clientSocket);
 		printf("Connection to client closed.");
+		*/
 	}
 
 	return 0;
@@ -78,4 +86,16 @@ int initServer()
 	}
 
 	return serverSocket;
+}
+
+// Thread für jeden Client
+// arg: client socket
+void *handleRequest(void *arg) 
+{
+	int socket = (int)arg;
+	char command[COMMAND_LENGTH];	// Puffer
+	read(socket, command, sizeof(command));
+
+	close(socket);
+	printf("Message: %s\n", command);
 }
