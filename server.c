@@ -2,27 +2,44 @@
 #include <stdlib.h>
 
 #include <netdb.h>
+
+#include <sys/types.h>
+#include <sys/socket.h>
+
 #include <pthread.h>
 
 #include <string.h>
 
 #define COMMAND_LENGTH 255
 #define SERVER_PORT 1417
+#define NR_WORKERS 2
+
+char * queue[NR_WORKERS];
 
 void *handleRequest(void *);
+void *dispatcher(void *);
+void *worker(void *);
 
 int main (int argc, char *argv[])
 {
+    // Start dispatcher thread:
+    pthread_t th;
+    pthread_create(th, NULL, dispatcher, NULL); // letzer NUll-Wert: Übergabeparameter
+
 	int serverSocket = initServer();
   	// Listening for clients
 
 	struct sockaddr_in cli_addr;
 	listen(serverSocket, 5);
 	int cliLen = sizeof(cli_addr);
-	
+
 	pthread_t threads[10];
 
-	// ToDo: Add Threads!
+	// Wait for connections
+	// add commands to queue
+	// dispatcher takes command from queue and assigns it to new worker thread
+	// worker thread executes command
+	// write results to log
 	while(1)
 	{
 		printf("Waiting for connections...\n");
@@ -36,24 +53,11 @@ int main (int argc, char *argv[])
 		}
 		printf("Client connected: %d \n", cli_addr.sin_addr.s_addr);
 		printf("%d", clientSocket);
-		pthread_create(&threads[clientSocket], NULL, handleRequest, (void*)&clientSocket);
-		
-		/** Start communicating
-		char command[COMMAND_LENGTH];
-		int n = read(clientSocket, command, sizeof(command));
 
-		if(n<0)
-		{
-			perror("Error reading from socket\n");
-			exit(1);
-		}
+		char command[COMMAND_LENGTH];	// Puffer
+        recv(socket, command, COMMAND_LENGTH, MSG_WAITALL);
+        addToQueue(command)^;
 
-		printf("Here is the message: %s \n", command);
-
-		shutdown(clientSocket, SHUT_RDWR);
-		close(clientSocket);
-		printf("Connection to client closed.");
-		*/
 	}
 
 	return 0;
@@ -90,12 +94,25 @@ int initServer()
 
 // Thread für jeden Client
 // arg: client socket
-void *handleRequest(void *arg) 
+void *handleRequest(void *arg)
 {
 	int socket = (int)arg;
 	char command[COMMAND_LENGTH];	// Puffer
-	read(socket, command, sizeof(command));
+	recv(socket, command, COMMAND_LENGTH, MSG_WAITALL);
 
 	close(socket);
 	printf("Message: %s\n", command);
+}
+
+void *dispatcher(void *)
+{
+    // take command from queue
+    // start new worker thread
+}
+
+void *worker(void *arg)
+{
+    char * command = (char*)arg;
+    // execute command
+    // write result to server.log
 }
