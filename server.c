@@ -239,7 +239,6 @@ char *executeCommand(char *com)
 	FILE *fp;
   	char path[1035];
 
-  	writeToLog(com+": \n");
   	/* Open the command for reading. */
 	fp = popen(com, "r");
 	if (fp == NULL) 
