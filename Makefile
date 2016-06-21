@@ -1,5 +1,5 @@
 # compiler options -- C99 with warnings
-OPT_GCC = -std=c99 -Wall -Wextra -w
+OPT_GCC = -std=c99 -Wall -Wextra -g
 OPT = -D_XOPEN_SOURCE=700
 LIB = -lpthread -lrt
 
