@@ -34,11 +34,11 @@ int worker_thread_counter = 0;
 void enqueue(char *command);
 char *dequeue();
 bool isEmpty();
-void * handleRequest(void *);
 void *dispatcher(void *);
 void *worker(void *);
 void writeToLog(char *text);
 char *executeCommand(char *com);
+void getNFibnumber(char *com);
 
 int main(int argc, char *argv[])
 {
@@ -64,7 +64,7 @@ int main(int argc, char *argv[])
 	// dispatcher takes command from queue and assigns it to new worker thread
 	// worker thread executes command
 	// write results to log
-	// todo: put this in own thread
+	// todo: add condition variables and mutex
 	while (1)
 	{
 		printf("Waiting for connections...\n");
@@ -83,8 +83,14 @@ int main(int argc, char *argv[])
 		
 		close(clientSocket);
 		//printf("Client disconnected.\n");
-		
+
 		PUFFER[numBytesRcvd] = '\0';
+
+		if (PUFFER[0] == '3')
+		{
+			printf("Shutdown server!\n");
+			exit(1);
+		}
 		enqueue(PUFFER);
 	}
 
@@ -133,9 +139,10 @@ void *dispatcher(void *arg)
 			if (worker_thread_counter < NR_MAX_WORKERS)
 			{
 				char *com = dequeue();
-				//printf("Test dispatcher Command: %s\n", com);
-				pthread_create(&(worker_threads[worker_thread_counter]), NULL, worker, com); // letzer NUll-Wert: Übergabeparameter
+				
+				printf("Worker thread created\n");
 				worker_thread_counter++;
+				pthread_create(&(worker_threads[worker_thread_counter]), NULL, worker, com); // letzer NUll-Wert: Übergabeparameter
 			}
 		}
 	}
@@ -157,13 +164,16 @@ void *worker(void *arg)
 			executeCommand(command);
 			break;
 		case '2':
+			printf("Befehl 2: %s \n", command);
+			getNFibnumber(command);
 			break;
-		case '3':
+		default:
+			printf("Command not defined!\n");
 			break;
 	}
-
+	//printf("SSS--------\n");
+	worker_thread_counter--;
 	// Exit thread:
-	
 	pthread_exit(NULL);
 }
 
@@ -258,4 +268,14 @@ char *executeCommand(char *com)
   	pclose(fp);
 
   	return 0;
+}
+
+void getNFibnumber(char *com)
+{
+	int n =atoi(com);
+	//printf("Fib: %d \n",n);
+	
+    printf("Ergebnis: %d ", n);
+    //printf("%d Fibonacci-Zahl: %d", n, c);
+    //writeToLog(c);
 }
