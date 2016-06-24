@@ -13,6 +13,7 @@ typedef int bool;
 #define true 1
 #define false 0
 
+// Linked list for the command queue
 typedef struct Node
 {
 	struct Node *next;
@@ -31,14 +32,21 @@ List *command_queue;
 pthread_t worker_threads[NR_MAX_WORKERS];
 int worker_thread_counter = 0;
 
+// List functions:
 void enqueue(char *command);
 char *dequeue();
 bool isEmpty();
+
+// Dispatcher thread:
 void *dispatcher(void *);
+
+// Worker thread:
 void *worker(void *);
+
+// Helper functions:
 void writeToLog(char *text);
 char *executeCommand(char *com);
-void getNFibnumber(char *com);
+int getNFibnumber(char *com);
 
 int main(int argc, char *argv[])
 {
@@ -52,9 +60,9 @@ int main(int argc, char *argv[])
 	pthread_t dispatcher_thread;
 	pthread_create(&dispatcher_thread, NULL, dispatcher, NULL); // letzer NUll-Wert: Übergabeparameter
 
+	// Init server
 	int serverSocket = initServer();
-	// Listening for clients
-
+	
 	struct sockaddr_in cli_addr;
 	listen(serverSocket, 5);
 	int cliLen = sizeof(cli_addr);
@@ -78,12 +86,12 @@ int main(int argc, char *argv[])
 		}
 		printf("Client connected: %d \n", cli_addr.sin_addr.s_addr);
 
+		// Receive message from client
 		char PUFFER[MAX_COMMAND_LENGTH];	// Puffer
 		ssize_t numBytesRcvd = recv(clientSocket, PUFFER, MAX_COMMAND_LENGTH, MSG_WAITALL);
 		
 		close(clientSocket);
-		//printf("Client disconnected.\n");
-
+		
 		PUFFER[numBytesRcvd] = '\0';
 
 		if (PUFFER[0] == '3')
@@ -91,11 +99,11 @@ int main(int argc, char *argv[])
 			printf("Shutdown server!\n");
 			exit(1);
 		}
+
 		enqueue(PUFFER);
 	}
 
 	return 0;
-
 }
 
 int initServer()
@@ -117,8 +125,7 @@ int initServer()
 	serv_addr.sin_port = htons(SERVER_PORT);
 
 	// Bind host adress
-	if (bind(serverSocket, (struct sockaddr *) &serv_addr, sizeof(serv_addr))
-			< 0)
+	if (bind(serverSocket, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0)
 	{
 		perror("Error on binding\n");
 		exit(1);
@@ -127,7 +134,7 @@ int initServer()
 	return serverSocket;
 }
 
-// Takes command from queue and assigns to new worker thread
+// Takes command from queue and starts new worker thread
 void *dispatcher(void *arg)
 {
 	printf("Wartelistelänge: %d \n", command_queue->counter);
@@ -140,7 +147,6 @@ void *dispatcher(void *arg)
 			{
 				char *com = dequeue();
 				
-				printf("Worker thread created\n");
 				worker_thread_counter++;
 				pthread_create(&(worker_threads[worker_thread_counter]), NULL, worker, com); // letzer NUll-Wert: Übergabeparameter
 			}
@@ -148,6 +154,7 @@ void *dispatcher(void *arg)
 	}
 }
 
+// The worker thread
 void *worker(void *arg)
 {
 	char *command = (char*)arg;
@@ -157,48 +164,52 @@ void *worker(void *arg)
 	char header = command[0];
 	command += 2;
 
+	// Check number of message
 	switch(header)
 	{
-		case '1':
-			printf("Befehl: 1\n");
+		case '1':		// Execute shell command
+			printf("Befehl: 1: %s \n", command);
 			executeCommand(command);
 			break;
-		case '2':
+		case '2':		// Get the n-th number of Fibonacci series
 			printf("Befehl 2: %s \n", command);
-			getNFibnumber(command);
+			int fib = getNFibnumber(command);
+			char buf[10];
+			sprintf(buf, "%d", fib);
+			writeToLog(buf);
 			break;
 		default:
 			printf("Command not defined!\n");
 			break;
 	}
-	//printf("SSS--------\n");
+	printf("--------\n");
 	worker_thread_counter--;
 	// Exit thread:
 	pthread_exit(NULL);
 }
 
+// Put command into the command queue
 void enqueue(char *command)
 {
 	if (command_queue->counter < NR_MAX_WORKERS)
 	{
 		Node* tmp = (Node*) malloc(sizeof(Node));
-
-		//printf("Test enqueue: %s \n", command);
 		
 		tmp->value = command;
 
-		if (command_queue->head == NULL)	// Erstes Element
+		if (command_queue->head == NULL)		// Erstes Element
 			command_queue->head = tmp;
 		else
-			// jedes weitere
-			command_queue->tail->next = tmp;
+			command_queue->tail->next = tmp;	// jedes Weitere
 
 		tmp->prev = command_queue->tail;
 		command_queue->tail = tmp;
-		command_queue->counter++;
+		command_queue->counter++;				// Counts the number of Elements in the queue
 	}
 }
 
+// Take command from command queue (FIFO)
+// Delete memory
 char *dequeue()
 {
 	Node* tmp = command_queue->head;
@@ -220,6 +231,7 @@ char *dequeue()
 	return data;
 }
 
+// Checks if the queue is empty
 bool isEmpty()
 {
 	if (command_queue->counter == 0)
@@ -228,6 +240,7 @@ bool isEmpty()
 		return false;
 }
 
+// Writes a specified text to a file called 'server_log.txt'
 void writeToLog(char *text)
 {
 	FILE *f = fopen("server_log.txt", "a");
@@ -261,7 +274,7 @@ char *executeCommand(char *com)
 	/* Read the output a line at a time - output it. */
   	while (fgets(path, sizeof(path)-1, fp) != NULL) 
   	{
-    	//printf("%s", path);
+    	printf("%s", path);
     	writeToLog(path);
   	}
   	/* close */
@@ -270,12 +283,29 @@ char *executeCommand(char *com)
   	return 0;
 }
 
-void getNFibnumber(char *com)
+int getNFibnumber(char *com)
 {
-	int n =atoi(com);
-	//printf("Fib: %d \n",n);
+	int n = atoi(com);
+
+	printf("%d\n", n);
 	
-    printf("Ergebnis: %d ", n);
-    //printf("%d Fibonacci-Zahl: %d", n, c);
-    //writeToLog(c);
+	int a = 0;
+	int b = 1;
+	int c;
+
+	if ( n == 0)
+	{
+		printf("Ergebnis1 %d", a);
+		return a;
+	}
+
+	for (int i = 2; i <= n; i++)
+	{
+		c = a + b;
+		a = b;
+		b = c;
+	}
+
+	printf("Ergebnis %d", b);
+	return b;
 }
