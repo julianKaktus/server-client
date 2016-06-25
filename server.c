@@ -1,9 +1,8 @@
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
-
+#include <unistd.h>
 #include <netdb.h>
-
-#include <pthread.h>
 
 #define MAX_COMMAND_LENGTH 255
 #define SERVER_PORT 1417
@@ -26,18 +25,24 @@ typedef struct
 	struct Node* head;
 	struct Node* tail;
 	int counter;
+	pthread_mutex_t mutex;	// needed to add/remove data from the queue
+	pthread_cond_t can_produce;	// signaled when items are removed
+	pthread_cond_t can_consume;	// signaled when items are added
 } List;
 
 List *command_queue;
 pthread_t worker_threads[NR_MAX_WORKERS];
 int worker_thread_counter = 0;
 
+// Mutex for Server Log:
+pthread_mutex_t lock;
+
 // List functions:
 void enqueue(char *command);
 char *dequeue();
 bool isEmpty();
 
-// Dispatcher thread:
+// Dispatcher thread (consumer):
 void *dispatcher(void *);
 
 // Worker thread:
@@ -55,7 +60,10 @@ int main(int argc, char *argv[])
 	command_queue = &tmpQueue;
 	command_queue->head = command_queue->tail = NULL;
 	command_queue->counter = 0;
-
+	command_queue->mutex = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
+	command_queue->can_produce = (pthread_mutex_t)PTHREAD_COND_INITIALIZER;
+	command_queue->can_consume = (pthread_mutex_t) PTHREAD_COND_INITIALIZER;
+	
 	// Start dispatcher thread:
 	pthread_t dispatcher_thread;
 	pthread_create(&dispatcher_thread, NULL, dispatcher, NULL);
@@ -63,9 +71,18 @@ int main(int argc, char *argv[])
 	// Init server
 	int serverSocket = initServer();
 	
+	// Init Mutex for server log:
+	if (pthread_mutex_init(&lock, NULL) != 0 )
+	{
+		perror("Mutex init failed\n");
+		exit(1);
+	}
+
 	struct sockaddr_in cli_addr;
 	listen(serverSocket, 5);
 	int cliLen = sizeof(cli_addr);
+
+	printf("Server started. Waiting for connections...\n");
 
 	// Wait for connections
 	// add commands to queue
@@ -75,8 +92,6 @@ int main(int argc, char *argv[])
 	// todo: add condition variables and mutex
 	while (1)
 	{
-		printf("Waiting for connections...\n");
-
 		// Accept actual connection from the client
 		int clientSocket = accept(serverSocket, (struct sockaddr *) &cli_addr,&cliLen);
 		if (clientSocket < 0)
@@ -84,23 +99,39 @@ int main(int argc, char *argv[])
 			perror("Error on accept\n");
 			exit(1);
 		}
-		printf("Client connected: %d \n", cli_addr.sin_addr.s_addr);
+		//printf("Client connected: %d \n", cli_addr.sin_addr.s_addr);
 
 		// Receive message from client
 		char PUFFER[MAX_COMMAND_LENGTH];	// Puffer
 		ssize_t numBytesRcvd = recv(clientSocket, PUFFER, MAX_COMMAND_LENGTH, MSG_WAITALL);
-		
-		close(clientSocket);
-		
 		PUFFER[numBytesRcvd] = '\0';
 
+		close(clientSocket);
+		
+		// Server Shutdown command
 		if (PUFFER[0] == '3')
 		{
 			printf("Shutdown server!\n");
+			pthread_mutex_destroy(&lock);
 			exit(1);
 		}
 
+		// Producer
+		pthread_mutex_lock(&command_queue->mutex);
+
+		if(command_queue->counter == NR_MAX_WORKERS)	// full
+		{
+			// wait until some elements are consumed
+			pthread_cond_wait(&command_queue->can_produce, &command_queue->mutex);
+		}
+
+		// Produce
 		enqueue(PUFFER);
+
+		// signal the fact that new items may be consumed
+        pthread_cond_signal(&command_queue->can_consume);
+        pthread_mutex_unlock(&command_queue->mutex);
+
 	}
 
 	return 0;
@@ -115,7 +146,7 @@ int initServer()
 		perror("Error opening socket\n");
 		exit(1);
 	}
-	printf("Socket opened.\n");
+	//printf("Socket opened.\n");
 
 	// Initialize socket structure
 	struct sockaddr_in serv_addr;
@@ -134,79 +165,21 @@ int initServer()
 	return serverSocket;
 }
 
-// Takes command from queue and starts new worker thread
-void *dispatcher(void *arg)
-{
-	printf("Wartelistelänge: %d \n", command_queue->counter);
-
-	while (true)
-	{
-		if (!isEmpty())
-		{
-			if (worker_thread_counter < NR_MAX_WORKERS)
-			{
-				char *com = dequeue();
-				
-				worker_thread_counter++;
-				pthread_create(&(worker_threads[worker_thread_counter]), NULL, worker, com); // letzer NUll-Wert: Übergabeparameter
-			}
-		}
-	}
-}
-
-// The worker thread gets a command as argument and decides which task 
-// to execute 
-void *worker(void *arg)
-{
-	printf("Worker thread started\n");
-	char *command = (char*)arg;
-
-	char header = command[0];
-	command += 2;
-
-	// Check number of message
-	switch(header)
-	{
-		case '1':			// Execute shell command
-			printf("Starte Task 1 mit Kommando: %s \n", command);
-			executeCommand(command);
-			break;
-		case '2':			// Get the n-th number of Fibonacci series
-			printf("Starte Task 2 mit Parameter %s \n", command);
-			int fib = getNFibnumber(command);
-			char buf[10];	// Max nr of digits for a fibonacci number: 10
-			sprintf(buf, "%d", fib);	// Convert to string for the output
-			writeToLog(buf);
-			break;
-		default:
-			printf("Command not defined!\n");
-			break;
-	}
-
-	worker_thread_counter--;
-	printf("Worker thread ended\n");
-	// Exit thread:
-	pthread_exit(NULL);
-}
-
 // Puts a command into the command queue
 void enqueue(char *command)
 {
-	if (command_queue->counter < NR_MAX_WORKERS)
-	{
-		Node* tmp = (Node*) malloc(sizeof(Node));
-		
-		tmp->value = command;
+	Node* tmp = (Node*) malloc(sizeof(Node));
+	
+	tmp->value = command;
 
-		if (command_queue->head == NULL)		// First Element
-			command_queue->head = tmp;
-		else
-			command_queue->tail->next = tmp;	// every next
+	if (command_queue->head == NULL)		// First Element
+		command_queue->head = tmp;
+	else
+		command_queue->tail->next = tmp;	// every next
 
-		tmp->prev = command_queue->tail;
-		command_queue->tail = tmp;
-		command_queue->counter++;				// Counts the number of Elements in the queue
-	}
+	tmp->prev = command_queue->tail;
+	command_queue->tail = tmp;
+	command_queue->counter++;				// Counts the number of Elements in the queue
 }
 
 // Take command from command queue (FIFO)
@@ -241,9 +214,100 @@ bool isEmpty()
 		return false;
 }
 
+// Takes command from queue and starts new worker thread
+void *dispatcher(void *arg)
+{
+	while(true) 
+	{
+		pthread_mutex_lock(&command_queue->mutex);
+
+		while (command_queue->counter == 0) 	// Queue empty
+		{
+			// wait for new items to be appended to the buffer
+			pthread_cond_wait(&command_queue->can_consume, &command_queue->mutex);
+		}
+
+		// Consume
+		
+		char *com = dequeue();
+		printf("Consumed\n");
+
+		if(pthread_create(&(worker_threads[worker_thread_counter]), NULL, worker, com) != 0) // letzer NUll-Wert: Übergabeparameter
+		{
+			perror("Konnte Thread nicht erzeugen\n");
+			exit(1);
+		}
+
+		worker_thread_counter++;
+
+		// signal the fact that new items may be produced
+        pthread_cond_signal(&command_queue->can_produce);
+        pthread_mutex_unlock(&command_queue->mutex);
+	}
+
+	return NULL;
+	/**
+	while (true)
+	{
+		if (!isEmpty())
+		{
+			if (worker_thread_counter < NR_MAX_WORKERS)
+			{
+				char *com = dequeue();
+				
+				if(pthread_create(&(worker_threads[worker_thread_counter]), NULL, worker, com) != 0) // letzer NUll-Wert: Übergabeparameter
+				{
+					perror("Konnte Thread nicht erzeugen\n");
+					exit(1);
+				}
+				worker_thread_counter++;
+			}
+		}
+	}
+	*/
+}
+
+// The worker thread gets a command as argument and decides which task 
+// to execute 
+void *worker(void *arg)
+{
+	printf(">Worker thread %ld started\n", pthread_self());
+	char *command = (char*)arg;
+
+	char header = command[0];
+	command += 2;
+
+	// Check number of message
+	switch(header)
+	{
+		case '1':			// Execute shell command
+			printf("-- Starte Task 1 mit Kommando: %s \n", command);
+			executeCommand(command);
+			break;
+		case '2':			// Get the n-th number of Fibonacci series
+			printf("-- Starte Task 2 mit Parameter %s \n", command);
+			int fib = getNFibnumber(command);
+			char buf[10];	// Max nr of digits for a fibonacci number: 10
+			sprintf(buf, "%d", fib);	// Convert to string for the output
+			writeToLog(buf);
+			break;
+		default:
+			printf("Command not defined!\n");
+			break;
+	}
+
+	worker_thread_counter--;
+	printf("-Worker thread %ld ended\n", pthread_self());
+	// Exit thread:
+	pthread_exit(NULL);
+}
+
+
 // Writes a specified text to a file called 'server_log.txt'
 void writeToLog(char *text)
 {
+	pthread_mutex_lock(&lock);
+
 	FILE *f = fopen("server_log.txt", "a");
 	if (f == NULL)
 	{
@@ -255,6 +319,8 @@ void writeToLog(char *text)
 	fprintf(f, "%s\n", text);
 
 	fclose(f);
+
+	pthread_mutex_unlock(&lock);
 }
 
 // Executes a shell command and writes output into global server log
@@ -275,7 +341,7 @@ char *executeCommand(char *com)
 	/* Read the output a line at a time - output it. */
   	while (fgets(path, sizeof(path)-1, fp) != NULL) 
   	{
-    	printf("%s", path);
+    	//printf("%s", path);
     	writeToLog(path);
   	}
   	/* close */
