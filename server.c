@@ -13,7 +13,7 @@ typedef int bool;
 #define true 1
 #define false 0
 
-// Linked list for the command queue
+// Linked list for command queue
 typedef struct Node
 {
 	struct Node *next;
@@ -58,7 +58,7 @@ int main(int argc, char *argv[])
 
 	// Start dispatcher thread:
 	pthread_t dispatcher_thread;
-	pthread_create(&dispatcher_thread, NULL, dispatcher, NULL); // letzer NUll-Wert: Übergabeparameter
+	pthread_create(&dispatcher_thread, NULL, dispatcher, NULL);
 
 	// Init server
 	int serverSocket = initServer();
@@ -154,12 +154,12 @@ void *dispatcher(void *arg)
 	}
 }
 
-// The worker thread
+// The worker thread gets a command as argument and decides which task 
+// to execute 
 void *worker(void *arg)
 {
+	printf("Worker thread started\n");
 	char *command = (char*)arg;
-
-	printf("Command for worker: %s\n", command);
 
 	char header = command[0];
 	command += 2;
@@ -167,28 +167,29 @@ void *worker(void *arg)
 	// Check number of message
 	switch(header)
 	{
-		case '1':		// Execute shell command
-			printf("Befehl: 1: %s \n", command);
+		case '1':			// Execute shell command
+			printf("Starte Task 1 mit Kommando: %s \n", command);
 			executeCommand(command);
 			break;
-		case '2':		// Get the n-th number of Fibonacci series
-			printf("Befehl 2: %s \n", command);
+		case '2':			// Get the n-th number of Fibonacci series
+			printf("Starte Task 2 mit Parameter %s \n", command);
 			int fib = getNFibnumber(command);
-			char buf[10];
-			sprintf(buf, "%d", fib);
+			char buf[10];	// Max nr of digits for a fibonacci number: 10
+			sprintf(buf, "%d", fib);	// Convert to string for the output
 			writeToLog(buf);
 			break;
 		default:
 			printf("Command not defined!\n");
 			break;
 	}
-	printf("--------\n");
+
 	worker_thread_counter--;
+	printf("Worker thread ended\n");
 	// Exit thread:
 	pthread_exit(NULL);
 }
 
-// Put command into the command queue
+// Puts a command into the command queue
 void enqueue(char *command)
 {
 	if (command_queue->counter < NR_MAX_WORKERS)
@@ -197,10 +198,10 @@ void enqueue(char *command)
 		
 		tmp->value = command;
 
-		if (command_queue->head == NULL)		// Erstes Element
+		if (command_queue->head == NULL)		// First Element
 			command_queue->head = tmp;
 		else
-			command_queue->tail->next = tmp;	// jedes Weitere
+			command_queue->tail->next = tmp;	// every next
 
 		tmp->prev = command_queue->tail;
 		command_queue->tail = tmp;
@@ -250,13 +251,13 @@ void writeToLog(char *text)
 	    exit(1);
 	}
 
-	/* print some text */
-	//const char *text = "Write this to the file";
+	/* print text */
 	fprintf(f, "%s\n", text);
 
 	fclose(f);
 }
 
+// Executes a shell command and writes output into global server log
 char *executeCommand(char *com)
 {
 	FILE *fp;
@@ -283,11 +284,11 @@ char *executeCommand(char *com)
   	return 0;
 }
 
+// Calculates the n-th fibonacci number
 int getNFibnumber(char *com)
 {
+	// Convert string to int
 	int n = atoi(com);
-
-	printf("%d\n", n);
 	
 	int a = 0;
 	int b = 1;
@@ -295,7 +296,6 @@ int getNFibnumber(char *com)
 
 	if ( n == 0)
 	{
-		printf("Ergebnis1 %d", a);
 		return a;
 	}
 
@@ -306,6 +306,5 @@ int getNFibnumber(char *com)
 		b = c;
 	}
 
-	printf("Ergebnis %d", b);
 	return b;
 }
