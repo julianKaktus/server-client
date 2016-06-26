@@ -40,7 +40,6 @@ pthread_mutex_t lock;
 // List functions:
 void enqueue(char *command);
 char *dequeue();
-bool isEmpty();
 
 // Dispatcher thread (consumer):
 void *dispatcher(void *);
@@ -60,10 +59,14 @@ int main(int argc, char *argv[])
 	command_queue = &tmpQueue;
 	command_queue->head = command_queue->tail = NULL;
 	command_queue->counter = 0;
-	command_queue->mutex = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
-	command_queue->can_produce = (pthread_mutex_t)PTHREAD_COND_INITIALIZER;
-	command_queue->can_consume = (pthread_mutex_t) PTHREAD_COND_INITIALIZER;
-	
+	//command_queue->mutex = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
+	//command_queue->can_produce = (pthread_mutex_t)PTHREAD_COND_INITIALIZER;
+	//command_queue->can_consume = (pthread_mutex_t) PTHREAD_COND_INITIALIZER;
+	pthread_mutex_init(&command_queue->mutex, NULL);
+	pthread_mutex_init(&command_queue->can_produce, NULL);
+	pthread_mutex_init(&command_queue->can_consume, NULL);
+
+
 	// Start dispatcher thread:
 	pthread_t dispatcher_thread;
 	pthread_create(&dispatcher_thread, NULL, dispatcher, NULL);
@@ -89,7 +92,6 @@ int main(int argc, char *argv[])
 	// dispatcher takes command from queue and assigns it to new worker thread
 	// worker thread executes command
 	// write results to log
-	// todo: add condition variables and mutex
 	while (1)
 	{
 		// Accept actual connection from the client
@@ -205,15 +207,6 @@ char *dequeue()
 	return data;
 }
 
-// Checks if the queue is empty
-bool isEmpty()
-{
-	if (command_queue->counter == 0)
-		return true;
-	else
-		return false;
-}
-
 // Takes command from queue and starts new worker thread
 void *dispatcher(void *arg)
 {
@@ -246,25 +239,6 @@ void *dispatcher(void *arg)
 	}
 
 	return NULL;
-	/**
-	while (true)
-	{
-		if (!isEmpty())
-		{
-			if (worker_thread_counter < NR_MAX_WORKERS)
-			{
-				char *com = dequeue();
-				
-				if(pthread_create(&(worker_threads[worker_thread_counter]), NULL, worker, com) != 0) // letzer NUll-Wert: Übergabeparameter
-				{
-					perror("Konnte Thread nicht erzeugen\n");
-					exit(1);
-				}
-				worker_thread_counter++;
-			}
-		}
-	}
-	*/
 }
 
 // The worker thread gets a command as argument and decides which task 
