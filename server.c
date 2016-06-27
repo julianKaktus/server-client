@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <netdb.h>
+#include <semaphore.h>
 
 #define MAX_COMMAND_LENGTH 255
 #define SERVER_PORT 1417
@@ -33,6 +34,8 @@ typedef struct
 List *command_queue;
 pthread_t worker_threads[NR_MAX_WORKERS];
 int worker_thread_counter = 0;
+pthread_mutex_t worker_thread_counter_mutex;
+sem_t create_worker_sema;
 
 // Mutex for Server Log:
 pthread_mutex_t lock;
@@ -63,10 +66,12 @@ int main(int argc, char *argv[])
 	//command_queue->can_produce = (pthread_mutex_t)PTHREAD_COND_INITIALIZER;
 	//command_queue->can_consume = (pthread_mutex_t) PTHREAD_COND_INITIALIZER;
 	pthread_mutex_init(&command_queue->mutex, NULL);
-	pthread_mutex_init(&command_queue->can_produce, NULL);
-	pthread_mutex_init(&command_queue->can_consume, NULL);
-
-
+	pthread_cond_init(&command_queue->can_produce, NULL);
+	pthread_cond_init(&command_queue->can_consume, NULL);
+	
+	pthread_mutex_init(&worker_thread_counter_mutex, NULL);
+	sem_init(&create_worker_sema, 0, NR_MAX_WORKERS);
+	
 	// Start dispatcher thread:
 	pthread_t dispatcher_thread;
 	pthread_create(&dispatcher_thread, NULL, dispatcher, NULL);
@@ -121,11 +126,17 @@ int main(int argc, char *argv[])
 		// Producer
 		pthread_mutex_lock(&command_queue->mutex);
 
-		if(command_queue->counter == NR_MAX_WORKERS)	// full
+		while(command_queue->counter == NR_MAX_WORKERS)	// full
 		{
 			// wait until some elements are consumed
+			char msg[256] = "Buffer is full. Wait until buffer has empty places\n";
+			send(clientSocket, msg, 256, 0);
+			printf(msg);
 			pthread_cond_wait(&command_queue->can_produce, &command_queue->mutex);
 		}
+		char msg[256] = "Command enqueued and buffer not full.\n";
+		send(clientSocket, msg, 256, 0);
+		printf(msg);
 
 		// Produce
 		enqueue(PUFFER);
@@ -220,19 +231,24 @@ void *dispatcher(void *arg)
 			pthread_cond_wait(&command_queue->can_consume, &command_queue->mutex);
 		}
 
+		
+		sem_wait(&create_worker_sema);
+		pthread_mutex_lock(&worker_thread_counter_mutex);		
+		
+		
+		printf("Dispatcher: workerCounter=%d\n", worker_thread_counter);
 		// Consume
 		
 		char *com = dequeue();
-		printf("Consumed\n");
-
+		printf("Dispatcher: Consumed\n");
+		
 		if(pthread_create(&(worker_threads[worker_thread_counter]), NULL, worker, com) != 0) // letzer NUll-Wert: Übergabeparameter
 		{
-			perror("Konnte Thread nicht erzeugen\n");
+			perror("Dispatcher: Konnte Thread nicht erzeugen\n");
 			exit(1);
 		}
-
 		worker_thread_counter++;
-
+		pthread_mutex_unlock(&worker_thread_counter_mutex);
 		// signal the fact that new items may be produced
         pthread_cond_signal(&command_queue->can_produce);
         pthread_mutex_unlock(&command_queue->mutex);
@@ -269,9 +285,12 @@ void *worker(void *arg)
 			printf("Command not defined!\n");
 			break;
 	}
-
-	worker_thread_counter--;
-	printf("-Worker thread %ld ended\n", pthread_self());
+	pthread_mutex_lock(&worker_thread_counter_mutex);
+		worker_thread_counter--;
+		
+		printf("-Worker thread %ld ended\n", pthread_self());
+		sem_post(&create_worker_sema);
+	pthread_mutex_unlock(&worker_thread_counter_mutex);	
 	// Exit thread:
 	pthread_exit(NULL);
 }
