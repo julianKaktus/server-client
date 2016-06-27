@@ -13,7 +13,7 @@ typedef int bool;
 #define true 1
 #define false 0
 
-// Linked list for command queue
+// Node for LinkedList
 typedef struct Node
 {
 	struct Node *next;
@@ -21,6 +21,7 @@ typedef struct Node
 	char *value;
 } Node;
 
+//LinkedList for the command queue
 typedef struct
 {
 	struct Node* head;
@@ -31,14 +32,14 @@ typedef struct
 	pthread_cond_t can_consume;	// signaled when items are added
 } List;
 
-List *command_queue;
-pthread_t worker_threads[NR_MAX_WORKERS];
-int worker_thread_counter = 0;
-pthread_mutex_t worker_thread_counter_mutex;
-sem_t create_worker_sema;
+List command_queue; 				// CommandQueue
 
-// Mutex for Server Log:
-pthread_mutex_t lock;
+pthread_t worker_threads[NR_MAX_WORKERS];	// Array of all workers
+int worker_thread_counter = 0;			// Current workercount
+pthread_mutex_t worker_thread_counter_mutex;	// Mutex to lock access on worker_thread_counter
+sem_t create_worker_sema;			// Semaphore to prohibit to much workers
+
+pthread_mutex_t lock;				// Mutex for server log
 
 // List functions:
 void enqueue(char *command);
@@ -58,17 +59,14 @@ int getNFibnumber(char *com);
 int main(int argc, char *argv[])
 {
 	// Init queue:
-	List tmpQueue;
-	command_queue = &tmpQueue;
-	command_queue->head = command_queue->tail = NULL;
-	command_queue->counter = 0;
-	//command_queue->mutex = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
-	//command_queue->can_produce = (pthread_mutex_t)PTHREAD_COND_INITIALIZER;
-	//command_queue->can_consume = (pthread_mutex_t) PTHREAD_COND_INITIALIZER;
-	pthread_mutex_init(&command_queue->mutex, NULL);
-	pthread_cond_init(&command_queue->can_produce, NULL);
-	pthread_cond_init(&command_queue->can_consume, NULL);
+	command_queue.head = command_queue.tail = NULL;
+	command_queue.counter = 0;
+
+	pthread_mutex_init(&command_queue.mutex, NULL);
+	pthread_cond_init(&command_queue.can_produce, NULL);
+	pthread_cond_init(&command_queue.can_consume, NULL);
 	
+	// Init worker-counter-access mutex and semaphore
 	pthread_mutex_init(&worker_thread_counter_mutex, NULL);
 	sem_init(&create_worker_sema, 0, NR_MAX_WORKERS);
 	
@@ -124,15 +122,15 @@ int main(int argc, char *argv[])
 		}
 
 		// Producer
-		pthread_mutex_lock(&command_queue->mutex);
+		pthread_mutex_lock(&command_queue.mutex);
 
-		while(command_queue->counter == NR_MAX_WORKERS)	// full
+		while(command_queue.counter == NR_MAX_WORKERS)	// full
 		{
 			// wait until some elements are consumed
 			char msg[256] = "Buffer is full. Wait until buffer has empty places\n";
 			send(clientSocket, msg, 256, 0);
 			printf(msg);
-			pthread_cond_wait(&command_queue->can_produce, &command_queue->mutex);
+			pthread_cond_wait(&command_queue.can_produce, &command_queue.mutex);
 		}
 		char msg[256] = "Command enqueued and buffer not full.\n";
 		send(clientSocket, msg, 256, 0);
@@ -142,8 +140,8 @@ int main(int argc, char *argv[])
 		enqueue(PUFFER);
 
 		// signal the fact that new items may be consumed
-        pthread_cond_signal(&command_queue->can_consume);
-        pthread_mutex_unlock(&command_queue->mutex);
+        pthread_cond_signal(&command_queue.can_consume);
+        pthread_mutex_unlock(&command_queue.mutex);
 
 	}
 
@@ -185,32 +183,32 @@ void enqueue(char *command)
 	
 	tmp->value = command;
 
-	if (command_queue->head == NULL)		// First Element
-		command_queue->head = tmp;
+	if (command_queue.head == NULL)		// First Element
+		command_queue.head = tmp;
 	else
-		command_queue->tail->next = tmp;	// every next
+		command_queue.tail->next = tmp;	// every next
 
-	tmp->prev = command_queue->tail;
-	command_queue->tail = tmp;
-	command_queue->counter++;				// Counts the number of Elements in the queue
+	tmp->prev = command_queue.tail;
+	command_queue.tail = tmp;
+	command_queue.counter++;				// Counts the number of Elements in the queue
 }
 
 // Take command from command queue (FIFO)
 // Delete memory
 char *dequeue()
 {
-	Node* tmp = command_queue->head;
-	command_queue->head = command_queue->head->next;
+	Node* tmp = command_queue.head;
+	command_queue.head = command_queue.head->next;
 
-	if (command_queue->head == NULL)
-		command_queue->tail = NULL;
+	if (command_queue.head == NULL)
+		command_queue.tail = NULL;
 	else
-		command_queue->head->prev = NULL;
+		command_queue.head->prev = NULL;
 
 	char *data = tmp->value;
 	if (tmp != NULL)
 	{
-		command_queue->counter--;
+		command_queue.counter--;
 		tmp->next = NULL;
 		free(tmp);
 	}
@@ -223,12 +221,12 @@ void *dispatcher(void *arg)
 {
 	while(true) 
 	{
-		pthread_mutex_lock(&command_queue->mutex);
+		pthread_mutex_lock(&command_queue.mutex);
 
-		while (command_queue->counter == 0) 	// Queue empty
+		while (command_queue.counter == 0) 	// Queue empty
 		{
 			// wait for new items to be appended to the buffer
-			pthread_cond_wait(&command_queue->can_consume, &command_queue->mutex);
+			pthread_cond_wait(&command_queue.can_consume, &command_queue.mutex);
 		}
 
 		
@@ -250,8 +248,8 @@ void *dispatcher(void *arg)
 		worker_thread_counter++;
 		pthread_mutex_unlock(&worker_thread_counter_mutex);
 		// signal the fact that new items may be produced
-        pthread_cond_signal(&command_queue->can_produce);
-        pthread_mutex_unlock(&command_queue->mutex);
+        pthread_cond_signal(&command_queue.can_produce);
+        pthread_mutex_unlock(&command_queue.mutex);
 	}
 
 	return NULL;
