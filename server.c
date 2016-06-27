@@ -139,7 +139,7 @@ int main(int argc, char *argv[])
 		// Produce
 		enqueue(PUFFER);
 
-		// signal the fact that new items may be consumed
+	// signal the fact that new items may be consumed
         pthread_cond_signal(&command_queue.can_consume);
         pthread_mutex_unlock(&command_queue.mutex);
 
@@ -259,7 +259,7 @@ void *dispatcher(void *arg)
 // to execute 
 void *worker(void *arg)
 {
-	printf(">Worker thread %ld started\n", pthread_self());
+	printf(">Worker thread 0x%lX started\n", pthread_self());
 	char *command = (char*)arg;
 
 	char header = command[0];
@@ -283,11 +283,11 @@ void *worker(void *arg)
 			printf("Command not defined!\n");
 			break;
 	}
+	// Lock mutex to access worker_thread_counter
 	pthread_mutex_lock(&worker_thread_counter_mutex);
+		printf("-Worker thread 0x%lX ended\n", pthread_self());
 		worker_thread_counter--;
-		
-		printf("-Worker thread %ld ended\n", pthread_self());
-		sem_post(&create_worker_sema);
+		sem_post(&create_worker_sema); // Signal to semaphore that this thread is finished
 	pthread_mutex_unlock(&worker_thread_counter_mutex);	
 	// Exit thread:
 	pthread_exit(NULL);
