@@ -37,7 +37,7 @@ List command_queue; 				// CommandQueue
 pthread_t worker_threads[NR_MAX_WORKERS];	// Array of all workers
 int worker_thread_counter = 0;			// Current workercount
 pthread_mutex_t worker_thread_counter_mutex;	// Mutex to lock access on worker_thread_counter
-sem_t create_worker_sema;			// Semaphore to prohibit to much workers
+sem_t create_worker_sema;			// Semaphore to prohibit too much workers
 
 pthread_mutex_t lock;				// Mutex for server log
 
